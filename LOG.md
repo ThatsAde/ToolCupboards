@@ -33,8 +33,8 @@ compile error rather than a review comment. `:core:jar` bundles `:api` and emits
 | api / event    | `api.event`                    | PARTIAL      | `BuildBlockDamageEvent` only — destroy/place/cupboard/upkeep events missing |
 | api / root     | `api`                          | DONE         | `ToolCupboardsAPI` |
 | core / config  | `core.config`                  | INTERFACE    | `BlockDefinitionLoader` only — `PluginSettings`, `YamlBlockDefinitionLoader` to write |
-| core / block   | `core.block`                   | PARTIAL      | `DefaultBuildBlockDefinition` only — registry, `BuildBlock` and `BuildBlockService` impls to write |
-| core / item    | `core.item`                    | MISSING      | registry impl + vanilla / Nexo / MMOItems providers |
+| core / block   | `core.block`                   | PARTIAL      | `DefaultBuildBlockDefinition`, `DefaultBuildBlock`, `DefaultBuildBlockService` — registry impl to write |
+| core / item    | `core.item`                    | PARTIAL      | `MMOItemsItemProvider` done; `NexoItemProvider` is a stub that does not compile; registry impl + vanilla provider to write |
 | core / listener| `core.listener`                | PARTIAL      | `BuildProtectionListener` — no-ops until `gameplayReady()` |
 | core / storage | `core.storage`                 | INTERFACE    | `StorageBackend` + `WorldSnapshot` — no backend implemented |
 | core / claim   | `core.claim`                   | MISSING      | spatial index + `ProtectionService` impl |
@@ -66,4 +66,6 @@ types that are deliberately left to be written by hand — the compile errors ar
 - 2026-08-06 | api/cupboard | `ToolCupboard` | `area()` now returns `ClaimArea`, was `ClaimShape` | DONE
 - 2026-08-06 | core | `it.yteicos.toolcupboards.core.**` | moved from the stray `it.yteicos.core.**` root; impls left to be written by hand, so `:core` does not compile (see the table above) | PARTIAL
 - 2026-08-06 | config | `core/src/main/resources/config.yml` | added `config-version: 1.0`, now validated by `PluginSettings#from` | DONE
+- 2026-08-07 | core/block | `core.block.DefaultBuildBlockService` | implemented `BuildBlockService`: position+id index, foundation-column placement rule, damage pipeline via `BuildBlockDamageEvent`, `blocksIn` linear scan; plus `load`/`unloadWorld`/`clear`/`byId` lifecycle hooks. World texture on place and storage calls left as TODO | PARTIAL
+- 2026-08-07 | core/item | `core.item.MMOItemsItemProvider` | fixed key parsing (`TYPE.ID` split on the first dot, both halves upper-cased — MMOItems indexes types and templates by upper-case id with no normalisation), added `amount > 0` and `MMOItems.plugin != null` guards, `matches` now reads the id through `MMOItems.getID` instead of the raw NBT tag | DONE
 - 2026-08-06 | deps | `build.gradle.kts`, `core/build.gradle.kts` | added soft-dep repos + `compileOnly` (non-transitive) for `com.nexomc:nexo:1.26.0`, `net.Indyuce:MMOItems-API:6.10.1-SNAPSHOT`, `io.lumine:MythicLib-dist:1.7.1-SNAPSHOT`, plus `kotlin-stdlib` which Nexo needs but neither ships nor declares; MMOItems moved host from the dead `repo.lumine.io` to `nexus.phoenixdevt.fr` | DONE
