@@ -1,0 +1,21 @@
+name: ToolCupboards
+version: '${version}'
+main: it.yteicos.toolcupboards.ToolCupboardsPlugin
+description: Rust-style claims anchored to tool cupboards, with custom build blocks and upkeep.
+author: yteicos
+api-version: '26.2'
+
+dependencies:
+  server:
+    Nexo:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    MMOItems:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    Vault:
+      load: BEFORE
+      required: false
+      join-classpath: true

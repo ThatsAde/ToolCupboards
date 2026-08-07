@@ -1,0 +1,26 @@
+# ToolCupboards — general configuration.
+# Per-block settings live in blocks/*.yml instead.
+
+config-version: 1.0 # Do not touch it
+
+claim:
+  # SPHERE or CUBE. Decides how 'radius' is interpreted.
+  shape: SPHERE
+  # Protected radius around a tool cupboard, in blocks.
+  radius: 32
+  # How many cupboards one player may own. -1 for unlimited.
+  max-per-player: -1
+
+upkeep:
+  # How often the scheduler wakes up to charge cupboards whose interval has elapsed.
+  # This is not the upkeep interval itself: that is per block, in blocks/*.yml.
+  tick-interval-seconds: 60
+  # Health removed from each covered block for every interval the cupboard could not pay for.
+  decay-per-missed-tick: 50.0
+
+shop:
+  # Global switch. When false, no build block can be bought regardless of its own shop-settings.
+  enabled: true
+
+# Worlds the plugin operates in. Leave empty for every world.
+worlds: []

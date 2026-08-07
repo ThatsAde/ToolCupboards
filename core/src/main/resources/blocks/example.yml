@@ -1,0 +1,33 @@
+config-version: 1.0 # Do not touch it
+
+settings:
+  block-name: REINFORCED_CONCRETE
+  # FOUNDATION or STRUCTURE. Structure blocks can only be placed above a foundation.
+  block-type: STRUCTURE
+  block-health: 4000
+  # Upkeep: every 'frequency-check' x 'time-unit', 'amount' of the keyed item is consumed from the
+  # covering tool cupboard. If it cannot be paid, blocks of this type start losing health.
+  # The key is a namespaced item: minecraft:stone, nexo:my_block, mmoitems:MATERIAL.STEEL.
+  required-materials:
+    minecraft:stone:
+      time-unit: HOURS
+      frequency-check: 1
+      amount: 40
+
+shop-settings:
+  enabled: true
+  price: 10000
+  # -1 for unlimited stock.
+  amount-available: 10000
+
+model-settings: # Supported (nexo: | mmoitems: )
+  item-type: "nexo:reinforced_concrete"
+
+crafting-recipe:
+  pattern:
+    - "AAA"
+    - "BBB"
+    - "AAA"
+  A: "minecraft:stone"
+  B: "minecraft:iron_ingot"
+  result-amount: 1
