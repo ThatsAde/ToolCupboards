@@ -8,7 +8,6 @@ import it.yteicos.toolcupboards.api.claim.ClaimArea;
 import it.yteicos.toolcupboards.api.event.BuildBlockDamageEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.Nullable;
@@ -17,10 +16,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -38,6 +39,16 @@ public final class DefaultBuildBlockService implements BuildBlockService {
 
     private final Map<BlockPos, BuildBlock> byPosition = new LinkedHashMap<>();
     private final Map<UUID, BuildBlock> byId = new HashMap<>();
+    /** Secondary index so chunk-shaped questions do not scan every placed block. */
+    private final Map<ChunkPos, Set<BuildBlock>> byChunk = new HashMap<>();
+    private final BuildBlockRenderer renderer;
+
+    /**
+     * @param renderer applies and clears the world appearance of a placed block
+     */
+    public DefaultBuildBlockService(final BuildBlockRenderer renderer) {
+        this.renderer = Objects.requireNonNull(renderer, "renderer");
+    }
 
     @Override
     public Optional<BuildBlock> blockAt(final Location location) {
@@ -71,10 +82,9 @@ public final class DefaultBuildBlockService implements BuildBlockService {
         final Location blockLocation = blockCorner(location);
         final BuildBlock block = new DefaultBuildBlock(definition, blockLocation, placedBy);
         index(block);
-
-        // TODO: apply definition.blockTexture() to the world. ItemProvider only builds ItemStacks,
-        //       so placing a Nexo/MMOItems block needs a provider capability that does not exist
-        //       yet. Until then the caller (BuildProtectionListener) owns the world block.
+        renderer.apply(definition, blockLocation);
+        // TODO: StorageBackend#saveBlock once a backend is wired; chunk persistence is handled by
+        //       ChunkBlockStore in the meantime.
         return block;
     }
 
@@ -112,9 +122,10 @@ public final class DefaultBuildBlockService implements BuildBlockService {
             byPosition.remove(position);
         }
         byId.remove(block.id());
+        unindexChunk(block, position);
 
         if (location.getWorld() != null && location.isWorldLoaded()) {
-            location.getBlock().setType(Material.AIR, false);
+            renderer.clear(location);
         }
         // TODO: StorageBackend#deleteBlock once a backend is wired.
     }
@@ -164,6 +175,30 @@ public final class DefaultBuildBlockService implements BuildBlockService {
             }
         }
         for (final BuildBlock block : dropped) {
+            final BlockPos position = BlockPos.of(block.location());
+            byPosition.remove(position);
+            byId.remove(block.id());
+            unindexChunk(block, position);
+        }
+        return dropped.size();
+    }
+
+    /**
+     * Forgets the blocks of one chunk without touching the world, for chunk unload. They come back
+     * through {@link #load(BuildBlock)} when the chunk is read again.
+     *
+     * @param world  the world the chunk belongs to
+     * @param chunkX the chunk x coordinate
+     * @param chunkZ the chunk z coordinate
+     * @return how many blocks were dropped from the index
+     */
+    public int unloadChunk(final World world, final int chunkX, final int chunkZ) {
+        Objects.requireNonNull(world, "world");
+        final Set<BuildBlock> dropped = byChunk.remove(new ChunkPos(world.getUID(), chunkX, chunkZ));
+        if (dropped == null) {
+            return 0;
+        }
+        for (final BuildBlock block : dropped) {
             byPosition.remove(BlockPos.of(block.location()));
             byId.remove(block.id());
         }
@@ -174,6 +209,19 @@ public final class DefaultBuildBlockService implements BuildBlockService {
     public void clear() {
         byPosition.clear();
         byId.clear();
+        byChunk.clear();
+    }
+
+    /**
+     * @param world  the world the chunk belongs to
+     * @param chunkX the chunk x coordinate
+     * @param chunkZ the chunk z coordinate
+     * @return every build block standing in that chunk
+     */
+    public Collection<BuildBlock> blocksInChunk(final World world, final int chunkX, final int chunkZ) {
+        Objects.requireNonNull(world, "world");
+        final Set<BuildBlock> blocks = byChunk.get(new ChunkPos(world.getUID(), chunkX, chunkZ));
+        return blocks == null ? List.of() : List.copyOf(blocks);
     }
 
     /**
@@ -187,8 +235,18 @@ public final class DefaultBuildBlockService implements BuildBlockService {
     // --- internals -------------------------------------------------------------------------------
 
     private void index(final BuildBlock block) {
-        byPosition.put(BlockPos.of(block.location()), block);
+        final BlockPos position = BlockPos.of(block.location());
+        byPosition.put(position, block);
         byId.put(block.id(), block);
+        byChunk.computeIfAbsent(ChunkPos.of(position), key -> new LinkedHashSet<>()).add(block);
+    }
+
+    private void unindexChunk(final BuildBlock block, final BlockPos position) {
+        final ChunkPos chunk = ChunkPos.of(position);
+        final Set<BuildBlock> blocks = byChunk.get(chunk);
+        if (blocks != null && blocks.remove(block) && blocks.isEmpty()) {
+            byChunk.remove(chunk);
+        }
     }
 
     /**
@@ -233,6 +291,14 @@ public final class DefaultBuildBlockService implements BuildBlockService {
         static BlockPos of(final Location location) {
             return new BlockPos(Objects.requireNonNull(location.getWorld(), "location world").getUID(),
                     location.getBlockX(), location.getBlockY(), location.getBlockZ());
+        }
+    }
+
+    /** Chunk coordinates plus world, the key of the secondary index. */
+    private record ChunkPos(UUID world, int x, int z) {
+
+        static ChunkPos of(final BlockPos position) {
+            return new ChunkPos(position.world(), position.x() >> 4, position.z() >> 4);
         }
     }
 }

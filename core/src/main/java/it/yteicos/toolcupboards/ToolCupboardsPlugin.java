@@ -3,19 +3,31 @@ package it.yteicos.toolcupboards;
 import it.yteicos.toolcupboards.api.ToolCupboardsAPI;
 import it.yteicos.toolcupboards.api.block.BuildBlockDefinition;
 import it.yteicos.toolcupboards.core.ToolCupboardsServices;
+import it.yteicos.toolcupboards.core.block.BuildBlockItems;
+import it.yteicos.toolcupboards.core.block.BuildBlockRenderer;
+import it.yteicos.toolcupboards.core.block.ChunkBlockStore;
+import it.yteicos.toolcupboards.core.block.DefaultBuildBlockService;
 import it.yteicos.toolcupboards.core.block.SimpleBuildBlockRegistry;
 import it.yteicos.toolcupboards.core.config.BlockDefinitionLoader;
 import it.yteicos.toolcupboards.core.config.PluginSettings;
 import it.yteicos.toolcupboards.core.config.YamlBlockDefinitionLoader;
+import it.yteicos.toolcupboards.core.item.MMOItemsItemProvider;
+import it.yteicos.toolcupboards.core.item.NexoItemProvider;
 import it.yteicos.toolcupboards.core.item.SimpleItemProviderRegistry;
 import it.yteicos.toolcupboards.core.item.VanillaItemProvider;
+import it.yteicos.toolcupboards.core.listener.BuildBlockListener;
 import it.yteicos.toolcupboards.core.listener.BuildProtectionListener;
+import it.yteicos.toolcupboards.core.listener.ChunkPersistenceListener;
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
+import org.bukkit.World;
+import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Plugin entry point.
@@ -30,6 +42,9 @@ public final class ToolCupboardsPlugin extends JavaPlugin {
 
     private ToolCupboardsServices services;
     private SimpleBuildBlockRegistry blockRegistry;
+    private DefaultBuildBlockService blocks;
+    private BuildBlockItems blockItems;
+    private ChunkBlockStore chunkStore;
 
     @Override
     public void onEnable() {
@@ -43,21 +58,33 @@ public final class ToolCupboardsPlugin extends JavaPlugin {
             return;
         }
 
+        // Every provider is registered unconditionally: each one reports isAvailable() == false
+        // when its backing plugin is missing, and the registry refuses to delegate to it.
         final SimpleItemProviderRegistry itemProviders = new SimpleItemProviderRegistry();
         itemProviders.register(new VanillaItemProvider());
-        // TODO: register NexoItemProvider / MMOItemsItemProvider when those plugins are present.
+        itemProviders.register(new NexoItemProvider());
+        itemProviders.register(new MMOItemsItemProvider());
         services.setItemProviders(itemProviders);
 
         blockRegistry = new SimpleBuildBlockRegistry();
         services.setBlockRegistry(blockRegistry);
         reloadBlockDefinitions();
 
-        // TODO: wire BuildBlockService, ToolCupboardService, ProtectionService, UpkeepService,
-        //       CraftingService and ShopService here. Until then gameplayReady() stays false and
-        //       the listeners no-op.
+        blockItems = new BuildBlockItems(this, itemProviders);
+        blocks = new DefaultBuildBlockService(new BuildBlockRenderer(itemProviders, getLogger()));
+        services.setBlocks(blocks);
+        chunkStore = new ChunkBlockStore(this, blockRegistry, blocks, getLogger());
 
-        getServer().getPluginManager().registerEvents(new BuildProtectionListener(services), this);
+        // TODO: wire ToolCupboardService, ProtectionService, UpkeepService, CraftingService and
+        //       ShopService here. Until then gameplayReady() stays false and protection no-ops.
+
+        final PluginManager events = getServer().getPluginManager();
+        events.registerEvents(new BuildBlockListener(services, blocks, blockItems, chunkStore), this);
+        events.registerEvents(new ChunkPersistenceListener(blocks, chunkStore), this);
+        events.registerEvents(new BuildProtectionListener(services), this);
         Bukkit.getServicesManager().register(ToolCupboardsAPI.class, services, this, ServicePriority.Normal);
+
+        restoreLoadedChunks();
 
         if (!services.gameplayReady()) {
             getLogger().warning("Gameplay services are not wired yet — protection is inactive.");
@@ -67,10 +94,40 @@ public final class ToolCupboardsPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         Bukkit.getServicesManager().unregisterAll(this);
+        // Shutdown does not reliably fire ChunkUnloadEvent, so flush every loaded chunk by hand.
+        if (chunkStore != null && blocks != null) {
+            forEachLoadedChunk(chunkStore::save);
+            blocks.clear();
+        }
         if (blockRegistry != null) {
             blockRegistry.clear();
         }
         services = null;
+    }
+
+    /** @return the item factory for build blocks, used by commands and the shop */
+    public BuildBlockItems blockItems() {
+        return blockItems;
+    }
+
+    /**
+     * Reads back the chunks that were already loaded when the plugin enabled: they never fire
+     * {@link org.bukkit.event.world.ChunkLoadEvent} for us.
+     */
+    private void restoreLoadedChunks() {
+        final int[] restored = {0};
+        forEachLoadedChunk(chunk -> restored[0] += chunkStore.load(chunk));
+        if (restored[0] > 0) {
+            getLogger().info("Restored " + restored[0] + " build block(s) from already-loaded chunks.");
+        }
+    }
+
+    private void forEachLoadedChunk(final Consumer<Chunk> action) {
+        for (final World world : getServer().getWorlds()) {
+            for (final Chunk chunk : world.getLoadedChunks()) {
+                action.accept(chunk);
+            }
+        }
     }
 
     /**

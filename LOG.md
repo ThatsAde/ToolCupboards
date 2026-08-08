@@ -32,9 +32,9 @@ compile error rather than a review comment. `:core:jar` bundles `:api` and emits
 | api / shop     | `api.shop`                     | DONE         | `ShopEntry`, `ShopService` (+ `Result`) |
 | api / event    | `api.event`                    | PARTIAL      | `BuildBlockDamageEvent` only — destroy/place/cupboard/upkeep events missing |
 | api / root     | `api`                          | DONE         | `ToolCupboardsAPI` |
-| core / config  | `core.config`                  | INTERFACE    | `BlockDefinitionLoader` only — `PluginSettings`, `YamlBlockDefinitionLoader` to write |
-| core / block   | `core.block`                   | PARTIAL      | `DefaultBuildBlockDefinition`, `DefaultBuildBlock`, `DefaultBuildBlockService` — registry impl to write |
-| core / item    | `core.item`                    | PARTIAL      | `MMOItemsItemProvider` done; `NexoItemProvider` is a stub that does not compile; registry impl + vanilla provider to write |
+| core / config  | `core.config`                  | DONE         | `BlockDefinitionLoader`, `YamlBlockDefinitionLoader`, `PluginSettings`, `ConfigVersion` |
+| core / block   | `core.block`                   | PARTIAL      | `DefaultBuildBlockDefinition`, `DefaultBuildBlock`, `DefaultBuildBlockService`, `SimpleBuildBlockRegistry` — service not wired, world texture + storage still TODO |
+| core / item    | `core.item`                    | DONE         | `SimpleItemProviderRegistry`, `VanillaItemProvider`, `NexoItemProvider`, `MMOItemsItemProvider` |
 | core / listener| `core.listener`                | PARTIAL      | `BuildProtectionListener` — no-ops until `gameplayReady()` |
 | core / storage | `core.storage`                 | INTERFACE    | `StorageBackend` + `WorldSnapshot` — no backend implemented |
 | core / claim   | `core.claim`                   | MISSING      | spatial index + `ProtectionService` impl |
@@ -48,16 +48,10 @@ Wiring state: `ToolCupboardsServices` accepts every service through setters and 
 an unwired one. `ToolCupboardsPlugin#onEnable` wires only settings, item providers and the block
 registry, so `gameplayReady()` is `false` and protection is inactive by design.
 
-**`:core` does not compile.** `:api` does. The bootstrap and `ToolCupboardsServices` reference five
-types that are deliberately left to be written by hand — the compile errors are the to-do list:
-
-| Type | Package | Referenced by |
-|------|---------|---------------|
-| `PluginSettings`           | `core.config` | `ToolCupboardsServices`, `ToolCupboardsPlugin#loadSettings` |
-| `YamlBlockDefinitionLoader`| `core.config` | `ToolCupboardsPlugin#reloadBlockDefinitions` — implements `BlockDefinitionLoader` |
-| `SimpleBuildBlockRegistry` | `core.block`  | `ToolCupboardsPlugin` field — implements `BuildBlockRegistry`, plus a `clear()` for reloads |
-| `SimpleItemProviderRegistry`| `core.item`  | `ToolCupboardsPlugin#onEnable` — implements `ItemProviderRegistry` |
-| `VanillaItemProvider`      | `core.item`   | `ToolCupboardsPlugin#onEnable` — implements `ItemProvider` for `minecraft:` |
+**Both modules compile** since 2026-08-08 (`./gradlew build` green). The next blocker is not a
+compile error but a decision: how a placed build block is rendered in the world (`ROADMAP.md`,
+*Decisioni aperte #1*). Until then `DefaultBuildBlockService` keeps its two TODOs (world texture on
+place, storage calls) and stays unwired.
 
 ## Changelog
 
@@ -68,4 +62,9 @@ types that are deliberately left to be written by hand — the compile errors ar
 - 2026-08-06 | config | `core/src/main/resources/config.yml` | added `config-version: 1.0`, now validated by `PluginSettings#from` | DONE
 - 2026-08-07 | core/block | `core.block.DefaultBuildBlockService` | implemented `BuildBlockService`: position+id index, foundation-column placement rule, damage pipeline via `BuildBlockDamageEvent`, `blocksIn` linear scan; plus `load`/`unloadWorld`/`clear`/`byId` lifecycle hooks. World texture on place and storage calls left as TODO | PARTIAL
 - 2026-08-07 | core/item | `core.item.MMOItemsItemProvider` | fixed key parsing (`TYPE.ID` split on the first dot, both halves upper-cased — MMOItems indexes types and templates by upper-case id with no normalisation), added `amount > 0` and `MMOItems.plugin != null` guards, `matches` now reads the id through `MMOItems.getID` instead of the raw NBT tag | DONE
+- 2026-08-08 | core/config | `core.config.PluginSettings`, `ConfigVersion`, `YamlBlockDefinitionLoader` | scritti: vista tipizzata di `config.yml` (valida e lancia, non migra), helper condiviso per `config-version` (normalizza `1` / `1.0` / `"1.0"`), loader YAML che salta i file rotti e usa `pathSeparator('/')` per non spezzare le chiavi tipo `mmoitems:MATERIAL.STEEL`; `model-settings.item-type` alimenta sia `itemModel` sia `blockTexture` | DONE
+- 2026-08-08 | core/block | `core.block.SimpleBuildBlockRegistry` | scritto: `LinkedHashMap` per id lowercase, `register` rifiuta i duplicati, `clear()` per il reload | DONE
+- 2026-08-08 | core/item | `core.item.SimpleItemProviderRegistry`, `VanillaItemProvider`, `NexoItemProvider` | registry per namespace che delega solo ai provider con `isAvailable()`; provider vanilla via `Material.matchMaterial`; Nexo completato con `NexoItems.itemFromId` + `idFromItem` (`build()` clonato prima di cambiare amount) | DONE
+- 2026-08-08 | core | `ToolCupboardsPlugin#onEnable` | registra tutti e tre gli item provider (i mancanti degradano da soli); **`:core` ora compila**, `./gradlew build` verde | PARTIAL
+- 2026-08-08 | docs | `ROADMAP.md` | riscritta: Fase 0.5 ora elenca i sei file che bloccano il build (con file, firma e trappole), Fase 1 allineata a ciò che esiste davvero, aggiunta la discrepanza `model-settings.item-type` ↔ `itemModel`/`blockTexture` | DONE
 - 2026-08-06 | deps | `build.gradle.kts`, `core/build.gradle.kts` | added soft-dep repos + `compileOnly` (non-transitive) for `com.nexomc:nexo:1.26.0`, `net.Indyuce:MMOItems-API:6.10.1-SNAPSHOT`, `io.lumine:MythicLib-dist:1.7.1-SNAPSHOT`, plus `kotlin-stdlib` which Nexo needs but neither ships nor declares; MMOItems moved host from the dead `repo.lumine.io` to `nexus.phoenixdevt.fr` | DONE
